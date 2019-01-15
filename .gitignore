@@ -90,9 +90,10 @@ ENV/
 env.bak/
 venv.bak/
 
-# Spyder project settings
+## IDE
 .spyderproject
 .spyproject
+.idea
 
 # Rope project settings
 .ropeproject
@@ -102,3 +103,10 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+## Notebooks - exclude by default
+nb/
+
+## Test tree for mucking around 
+treetest
+
