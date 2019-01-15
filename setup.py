@@ -8,6 +8,7 @@ setup(
     packages=find_packages(),
     install_requires=[
         "lenses==0.5.0",
-        "six"
+        "six",
+        "pathlib>=1.0.1"
     ]
 )
