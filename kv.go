@@ -3,7 +3,7 @@
 //Copyright (c) 2019 Mike McDermott
 //See LICENSE file for details
 //
-// Simple utility for acting like a kv store for the command line 
+// Simple utility for acting like a kv store for the command line
 
 package main
 
@@ -36,6 +36,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	// todo: add flag args
+
 	key_val := strings.Split(os.Args[1], "=")
 
 	if len(key_val) > 2 {
@@ -47,20 +49,26 @@ func main() {
 
 	usr, _ := user.Current()
 	lookup_key := hashx(key)
-	lookup_file := usr.HomeDir + "/.local/share/xac/" + lookup_key
+	lookup_path := usr.HomeDir + "/.local/share/xac/"
+	lookup_file := lookup_path + lookup_key
 
+	if _, err := os.Stat(lookup_path); os.IsNotExist(err) {
+		_ = os.Mkdir(lookup_path, os.ModePerm)
+	}
 
+	// Store key=val in file so we can query available keys
 	if len(key_val) == 1 {
 		dat, err := ioutil.ReadFile(lookup_file)
 		if err != nil {
 			log.Fatal("Key not found: " + key)
 			os.Exit(1)
 		}
-		fmt.Println(string(dat))
+		fmt.Println(strings.Split(string(dat), "=")[1])
 		os.Exit(0)
 
 	} else {
-		data := []byte(strings.TrimSpace(key_val[1]))
+		val := strings.TrimSpace(key_val[1])
+		data := []byte(key + "=" + val)
 		err := ioutil.WriteFile(lookup_file, data, 0644)
 		check(err)
 	}
