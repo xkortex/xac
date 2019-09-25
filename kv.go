@@ -53,7 +53,7 @@ func main() {
 	lookup_file := lookup_path + lookup_key
 
 	if _, err := os.Stat(lookup_path); os.IsNotExist(err) {
-		_ = os.Mkdir(lookup_path, os.ModePerm)
+		_ = os.MkdirAll(lookup_path, os.ModePerm)
 	}
 
 	// Store key=val in file so we can query available keys
