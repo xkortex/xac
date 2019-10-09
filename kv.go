@@ -54,18 +54,25 @@ type FlagsMode int
 const (
 	FlagNone FlagsMode = iota
 	FlagEndOfOpts
+	FlagHelp
 	FlagList
 	FlagDelete
+	FlagNamespace
 	FlagPop
 	FlagVerbose
 )
 
 var flagsMap = map[string]FlagsMode{
 	"--":        FlagEndOfOpts,
+	"-h": FlagHelp,
+	"--help": FlagHelp,
+	"-?": FlagHelp,
 	"-l":        FlagList,
 	"--list":    FlagList,
 	"-d":        FlagDelete,
 	"--delete":  FlagDelete,
+	"-n": FlagNamespace,
+	"--name": FlagNamespace,
 	"-v":        FlagVerbose,
 	"--verbose": FlagVerbose,
 }
@@ -81,35 +88,15 @@ type ParsedArgs struct {
 	key_val  string   // an argument which may be 'key' or 'key=val'
 	key      string
 	val      string
+	name     string  // namespace
 	mode     ProgramMode // mode: getting/setting etc
 	err_code int
 }
 
-func check(e error) {
+func panic_if(e error) {
 	if e != nil {
 		panic(e)
 	}
-}
-
-func stringInSlice(a string, list []string) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-	return false
-}
-
-func anyStringInSlice(options []string, list []string) bool {
-	for _, b := range list {
-		for _, a := range options {
-			if b == a {
-				return true
-			}
-		}
-
-	}
-	return false
 }
 
 // parse flags to a list of enums
@@ -136,7 +123,7 @@ func checkFlags(list []string) (map[FlagsMode]bool, error) {
 func hashx(s string) string {
 	h := fnv.New64a()
 	_, err := h.Write([]byte(s))
-	check(err)
+	panic_if(err)
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
@@ -152,7 +139,7 @@ func read_value(lookup_file string, key string) (string, error) {
 func store_value(lookup_file string, key string, value string) {
 	data := []byte(key + "=" + value)
 	err := ioutil.WriteFile(lookup_file, data, 0644)
-	check(err)
+	panic_if(err)
 }
 
 func pop_value(lookup_file string, key string) (string, error) {
@@ -173,7 +160,7 @@ func delete_value(lookup_file string, key string) (error) {
 
 func get_stdin() (StdInContainer, error) {
 	info, err := os.Stdin.Stat()
-	check(err)
+	panic_if(err)
 	out_struct := StdInContainer{has_stdin: false}
 	if (info.Mode() & os.ModeCharDevice) != 0 {
 		//fmt.Println("stdin is from a terminal")
@@ -202,7 +189,7 @@ func get_stdin() (StdInContainer, error) {
 func parseCLI() (ParsedArgs) {
 	parsed_args := ParsedArgs{mode: ModeHelp, err_code: 0}
 
-	// separate flags from args
+	// separate flags from args - this is rapidly getting out of hand
 	endOfOpts := false
 	for _, arg := range os.Args[1:] {
 		if arg[0:2] == "--" {
@@ -239,7 +226,7 @@ func parseCLI() (ParsedArgs) {
 
 	// deal with stdin, if present
 	stdin_struct, err := get_stdin()
-	check(err)
+	panic_if(err)
 	if (len(os.Args) == 1) && stdin_struct.has_stdin {
 		fmt.Println("<!> Error:  Piping from stdin, but no key provided")
 		parsed_args.err_code = 1
@@ -250,11 +237,6 @@ func parseCLI() (ParsedArgs) {
 		fmt.Println("<!> Error:  must provide one or more arguments")
 		parsed_args.err_code = 1
 		return parsed_args
-	}
-
-	if stdin_struct.has_stdin {
-		panic("/\\--/\\ Cannot handle pipe yet (under construction)")
-
 	}
 
 	// deal with args now
@@ -269,16 +251,34 @@ func parseCLI() (ParsedArgs) {
 			log.Fatal("Too many equals")
 			os.Exit(1)
 
-		} else if (len(key_val) == 2) {
-			parsed_args.key = strings.TrimSpace(key_val[0])
-			parsed_args.val = strings.TrimSpace(key_val[1])
-			parsed_args.mode = ModeSimpleSet
+		}
+
+		if stdin_struct.has_stdin {
+			if (len(key_val) == 2) {
+				log.Fatal("Cannot use `key=val` with pipe in")
+			} else {
+				parsed_args.key = strings.TrimSpace(key_val[0])
+				if parsed_args.mode == 0 {
+					parsed_args.mode = ModeSimpleSet
+					parsed_args.val = strings.TrimSpace(stdin_struct.stdin)
+				} else {
+					log.Fatal("Flags incompatible with pipe in:", parsed_args.flags)
+				}
+			}
 		} else {
-			parsed_args.key = strings.TrimSpace(key_val[0])
-			if parsed_args.mode == 0 {
-				parsed_args.mode = ModeSimpleGet
+			if (len(key_val) == 2) {
+				parsed_args.key = strings.TrimSpace(key_val[0])
+				parsed_args.val = strings.TrimSpace(key_val[1])
+				parsed_args.mode = ModeSimpleSet
+			} else {
+				parsed_args.key = strings.TrimSpace(key_val[0])
+				// if any existing flags are set, such as delete, use that mode
+				if parsed_args.mode == 0 {
+					parsed_args.mode = ModeSimpleGet
+				}
 			}
 		}
+
 	}
 
 	// default - show help
@@ -303,10 +303,10 @@ func list_all(lookup_path string) {
 	}
 	for _, file := range files {
 		fi, err := os.Stat(file)
-		check(err)
+		panic_if(err)
 		if fi.Mode().IsRegular() {
 			dat, err := ioutil.ReadFile(file)
-			check(err)
+			panic_if(err)
 			fmt.Println(string(dat))
 		}
 	}
@@ -314,9 +314,23 @@ func list_all(lookup_path string) {
 
 func show_help() {
 	fmt.Println(` Usage: kv [OPTIONS] KEY[=VALUE]
-    kv is a simple utility for getting and setting key-value pairs. 
-    Getting: kv KEY
-    Setting: kv KEY=VALUE`)
+    kv is a simple utility for getting and setting key-value pairs.
+	Examples:
+		$ kv foo=bar			# Set foo to bar
+		$ echo spam | kv foo 	# set foo to spam
+		$ kv foo				# Get value of foo
+		spam
+
+	Options:
+		-h, -?, --help			Show help
+
+		-l, --list 				List all kv pairs
+
+		-v, --verbose			Verbose mode on
+
+		-d, --delete KEY		Delete KEY
+
+    `)
 }
 
 func main() {
