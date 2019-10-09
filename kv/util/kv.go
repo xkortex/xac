@@ -5,7 +5,7 @@
 //
 // Simple utility for acting like a kv store for the command line
 
-package main
+package util
 
 import (
 	"bufio"
@@ -20,15 +20,6 @@ import (
 	"strconv"
 	"strings"
 )
-
-var G_VERBOSE = new(bool)
-
-// We basically only care about two levels of logging, at least right now
-func vprint(a ...interface{}) () {
-	if *G_VERBOSE {
-		fmt.Println(a...)
-	}
-}
 
 type keyError struct {
 	key string
@@ -64,22 +55,22 @@ const (
 
 var flagsMap = map[string]FlagsMode{
 	"--":        FlagEndOfOpts,
-	"-h": FlagHelp,
-	"--help": FlagHelp,
-	"-?": FlagHelp,
+	"-h":        FlagHelp,
+	"--help":    FlagHelp,
+	"-?":        FlagHelp,
 	"-l":        FlagList,
 	"--list":    FlagList,
 	"-d":        FlagDelete,
 	"--delete":  FlagDelete,
-	"-n": FlagNamespace,
-	"--name": FlagNamespace,
+	"-n":        FlagNamespace,
+	"--name":    FlagNamespace,
 	"-v":        FlagVerbose,
 	"--verbose": FlagVerbose,
 }
 
 type StdInContainer struct {
-	stdin     string
-	has_stdin bool
+	Stdin     string
+	Has_stdin bool
 }
 
 type ParsedArgs struct {
@@ -88,12 +79,12 @@ type ParsedArgs struct {
 	key_val  string   // an argument which may be 'key' or 'key=val'
 	key      string
 	val      string
-	name     string  // namespace
+	name     string      // namespace
 	mode     ProgramMode // mode: getting/setting etc
 	err_code int
 }
 
-func panic_if(e error) {
+func Panic_if(e error) {
 	if e != nil {
 		panic(e)
 	}
@@ -120,14 +111,14 @@ func checkFlags(list []string) (map[FlagsMode]bool, error) {
 	return bOptions, nil
 }
 
-func hashx(s string) string {
+func Hashx(s string) string {
 	h := fnv.New64a()
 	_, err := h.Write([]byte(s))
-	panic_if(err)
+	Panic_if(err)
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
-func read_value(lookup_file string, key string) (string, error) {
+func Read_value(lookup_file string, key string) (string, error) {
 	dat, err := ioutil.ReadFile(lookup_file)
 	if err != nil {
 		return "", &keyError{key: key}
@@ -136,14 +127,18 @@ func read_value(lookup_file string, key string) (string, error) {
 	return value, nil
 }
 
-func store_value(lookup_file string, key string, value string) {
+func Store_value(lookup_file string, key string, value string) {
 	data := []byte(key + "=" + value)
+	lookup_basepath := filepath.Dir(lookup_file)
+	if _, err := os.Stat(lookup_basepath); os.IsNotExist(err) {
+		_ = os.MkdirAll(lookup_basepath, os.ModePerm)
+	}
 	err := ioutil.WriteFile(lookup_file, data, 0644)
-	panic_if(err)
+	Panic_if(err)
 }
 
-func pop_value(lookup_file string, key string) (string, error) {
-	val, err := read_value(lookup_file, key)
+func Pop_value(lookup_file string, key string) (string, error) {
+	val, err := Read_value(lookup_file, key)
 	if err != nil {
 		return "", err
 	}
@@ -152,23 +147,23 @@ func pop_value(lookup_file string, key string) (string, error) {
 
 }
 
-func delete_value(lookup_file string, key string) (error) {
-	vprint("Deleting [%s] (%s)", key, lookup_file)
-	_, err := pop_value(lookup_file, key)
+func Delete_value(lookup_file string, key string) (error) {
+	Vprint("Deleting [%s] (%s)", key, lookup_file)
+	_, err := Pop_value(lookup_file, key)
 	return err
 }
 
-func get_stdin() (StdInContainer, error) {
+func Get_stdin() (StdInContainer, error) {
 	info, err := os.Stdin.Stat()
-	panic_if(err)
-	out_struct := StdInContainer{has_stdin: false}
+	Panic_if(err)
+	out_struct := StdInContainer{Has_stdin: false}
 	if (info.Mode() & os.ModeCharDevice) != 0 {
-		//fmt.Println("stdin is from a terminal")
+		//fmt.Println("Stdin is from a terminal")
 		return out_struct, nil
 	}
 
-	// data is being piped to stdin
-	//fmt.Println("data is being piped to stdin")
+	// data is being piped to Stdin
+	//fmt.Println("data is being piped to Stdin")
 
 	reader := bufio.NewReader(os.Stdin)
 	var output []rune
@@ -180,9 +175,19 @@ func get_stdin() (StdInContainer, error) {
 		}
 		output = append(output, input)
 	}
-	out_struct.stdin = string(output)
-	out_struct.has_stdin = true
+	out_struct.Stdin = string(output)
+	out_struct.Has_stdin = true
 	return out_struct, nil
+}
+
+func GetLookupPath(namespace string, key string) string {
+	lookup_path := appdirs.UserDataDir("kv", "", "", false)
+
+	if len(key) == 0 {
+		return filepath.Join(lookup_path, namespace)
+	}
+	lookup_key := Hashx(key)
+	return filepath.Join(lookup_path, namespace, lookup_key)
 }
 
 // This should always return a key, or fail/go to help
@@ -218,22 +223,21 @@ func parseCLI() (ParsedArgs) {
 			parsed_args.mode = ModeDelete
 		}
 		if val, ok := bOptions[FlagVerbose]; ok && val {
-			*G_VERBOSE = true
-			vprint("Verbose is on")
+			Vprint("Verbose is on")
 		}
 
 	}
 
-	// deal with stdin, if present
-	stdin_struct, err := get_stdin()
-	panic_if(err)
-	if (len(os.Args) == 1) && stdin_struct.has_stdin {
-		fmt.Println("<!> Error:  Piping from stdin, but no key provided")
+	// deal with Stdin, if present
+	stdin_struct, err := Get_stdin()
+	Panic_if(err)
+	if (len(os.Args) == 1) && stdin_struct.Has_stdin {
+		fmt.Println("<!> Error:  Piping from Stdin, but no key provided")
 		parsed_args.err_code = 1
 		return parsed_args
 	}
 
-	if (len(os.Args) == 1) && !stdin_struct.has_stdin {
+	if (len(os.Args) == 1) && !stdin_struct.Has_stdin {
 		fmt.Println("<!> Error:  must provide one or more arguments")
 		parsed_args.err_code = 1
 		return parsed_args
@@ -253,14 +257,14 @@ func parseCLI() (ParsedArgs) {
 
 		}
 
-		if stdin_struct.has_stdin {
+		if stdin_struct.Has_stdin {
 			if (len(key_val) == 2) {
 				log.Fatal("Cannot use `key=val` with pipe in")
 			} else {
 				parsed_args.key = strings.TrimSpace(key_val[0])
 				if parsed_args.mode == 0 {
 					parsed_args.mode = ModeSimpleSet
-					parsed_args.val = strings.TrimSpace(stdin_struct.stdin)
+					parsed_args.val = strings.TrimSpace(stdin_struct.Stdin)
 				} else {
 					log.Fatal("Flags incompatible with pipe in:", parsed_args.flags)
 				}
@@ -284,7 +288,7 @@ func parseCLI() (ParsedArgs) {
 	// default - show help
 	return parsed_args
 }
-func visit(files *[]string) filepath.WalkFunc {
+func Visit(files *[]string) filepath.WalkFunc {
 	return func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			log.Fatal(err)
@@ -294,19 +298,19 @@ func visit(files *[]string) filepath.WalkFunc {
 	}
 }
 
-func list_all(lookup_path string) {
+func List_all(lookup_path string) {
 	var files []string
 
-	err := filepath.Walk(lookup_path, visit(&files))
+	err := filepath.Walk(lookup_path, Visit(&files))
 	if err != nil {
 		panic(err)
 	}
 	for _, file := range files {
 		fi, err := os.Stat(file)
-		panic_if(err)
+		Panic_if(err)
 		if fi.Mode().IsRegular() {
 			dat, err := ioutil.ReadFile(file)
-			panic_if(err)
+			Panic_if(err)
 			fmt.Println(string(dat))
 		}
 	}
@@ -333,8 +337,7 @@ func show_help() {
     `)
 }
 
-func main() {
-	*G_VERBOSE = false
+func kv_main() {
 
 	parsed_args := parseCLI()
 	// todo: add flag args
@@ -344,17 +347,14 @@ func main() {
 		os.Exit(parsed_args.err_code)
 	}
 
-	lookup_key := hashx(parsed_args.key)
+	lookup_key := Hashx(parsed_args.key)
 	lookup_path := appdirs.UserDataDir("xac", "", "", false)
 	lookup_file := lookup_path + "/" + lookup_key
-	if *G_VERBOSE {
-		fmt.Println("path: ", lookup_path)
-		fmt.Println("lfile: ", lookup_file)
-		fmt.Println("flags: ", parsed_args.flags)
-		fmt.Println("args: ", parsed_args.args)
-		fmt.Println("mode: ", parsed_args.mode)
-
-	}
+	Vprint("path: ", lookup_path)
+	Vprint("lfile: ", lookup_file)
+	Vprint("flags: ", parsed_args.flags)
+	Vprint("args: ", parsed_args.args)
+	Vprint("mode: ", parsed_args.mode)
 
 	if _, err := os.Stat(lookup_path); os.IsNotExist(err) {
 		_ = os.MkdirAll(lookup_path, os.ModePerm)
@@ -363,17 +363,17 @@ func main() {
 	switch parsed_args.mode {
 	case ModeSimpleSet:
 		// Store key=val in file so we can query available keys
-		store_value(lookup_file, parsed_args.key, parsed_args.val)
+		Store_value(lookup_file, parsed_args.key, parsed_args.val)
 	case ModeSimpleGet:
-		val, err := read_value(lookup_file, parsed_args.key)
+		val, err := Read_value(lookup_file, parsed_args.key)
 		if err != nil {
 			log.Fatal(err)
 		}
 		fmt.Println(val)
 	case ModeList:
-		list_all(lookup_path)
+		List_all(lookup_path)
 	case ModeDelete:
-		err := delete_value(lookup_file, parsed_args.key)
+		err := Delete_value(lookup_file, parsed_args.key)
 		if err != nil {
 			log.Fatal(err)
 		}
