@@ -15,6 +15,7 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -123,12 +124,12 @@ func Read_value(lookup_file string, key string) (string, error) {
 	if err != nil {
 		return "", &keyError{key: key}
 	}
-	value := strings.Split(string(dat), "=")[1]
+	value := string(dat)
 	return value, nil
 }
 
 func Store_value(lookup_file string, key string, value string) {
-	data := []byte(key + "=" + value)
+	data := []byte(value)
 	lookup_basepath := filepath.Dir(lookup_file)
 	if _, err := os.Stat(lookup_basepath); os.IsNotExist(err) {
 		_ = os.MkdirAll(lookup_basepath, os.ModePerm)
@@ -182,11 +183,14 @@ func Get_stdin() (StdInContainer, error) {
 
 func GetLookupPath(namespace string, key string) string {
 	lookup_path := appdirs.UserDataDir("kv", "", "", false)
-
+	if len(namespace) > 0 {
+		namespace = filepath.Join(".ns", namespace)
+	}
 	if len(key) == 0 {
 		return filepath.Join(lookup_path, namespace)
 	}
-	lookup_key := Hashx(key)
+
+	lookup_key := url.PathEscape(key)
 	return filepath.Join(lookup_path, namespace, lookup_key)
 }
 
@@ -311,9 +315,20 @@ func List_all(lookup_path string) {
 		if fi.Mode().IsRegular() {
 			dat, err := ioutil.ReadFile(file)
 			Panic_if(err)
-			fmt.Println(string(dat))
+			// todo: deal with namespaces and formatting and a bunch of issues
+			key, _ := url.PathUnescape(filepath.Base(file))
+			rel, err := filepath.Rel(lookup_path, file)
+			Panic_if(err)
+			rel = strings.Replace(filepath.Dir(rel), ".ns", ".", 1)
+			if len(rel) > 0 {
+				rel = rel + "/"
+			}
+			tmp := []string{key, string(dat)}
+			fmt.Print( rel )
+			fmt.Println(strings.Join(tmp, ": "))
 		}
 	}
+	// todo: json output
 }
 
 func show_help() {

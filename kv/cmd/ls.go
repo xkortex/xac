@@ -12,6 +12,8 @@ import (
 // lsCmd represents the ls command
 var lsCmd = &cobra.Command{
 	Use:   "ls",
+	Aliases: []string{"l", "list"},
+
 	Short: "List values",
 	Long: `List values present in the store`,
 	Run: func(cmd *cobra.Command, args []string) {
