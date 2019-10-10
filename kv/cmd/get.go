@@ -14,6 +14,8 @@ import (
 // getCmd represents the get command
 var getCmd = &cobra.Command{
 	Use:   "get",
+	Aliases: []string{"g"},
+
 	Short: "Get a value from the store",
 	Long: `Attempts to get a value from the store given the provided key`,
 	Run: func(cmd *cobra.Command, args []string) {
@@ -30,6 +32,8 @@ var getCmd = &cobra.Command{
 		if err != nil && !silent {
 			log.Fatal(err)
 		}
+		// So bash is smart enough to strip whitespace so even though this adds
+		// a newline, it still seems to work for loading and
 		fmt.Println(val)
 	},
 }

@@ -14,7 +14,9 @@ import (
 // setCmd represents the set command
 var setCmd = &cobra.Command{
 	Use:   "set",
-	Short: "A brief description of your command",
+	Aliases: []string{"s"},
+
+	Short: "Set a key to a value",
 	Long: `Set a key to a value according to either command line input or 
 standard in`,
 	Run: func(cmd *cobra.Command, args []string) {

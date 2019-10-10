@@ -21,9 +21,8 @@ namespaces as well. `,
 	Run: func(cmd *cobra.Command, args []string) {
 		ns, _ := cmd.Flags().GetString("namespace")
 		silent, _ := cmd.Flags().GetBool("silent")
-
 		lookup_path := util.GetLookupPath(ns, "")
-		util.Vprint(lookup_path)
+		util.Vprint("Clearing: ", lookup_path)
 		err := os.RemoveAll(lookup_path)
 		if err != nil && !silent {
 			log.Fatal(err)
