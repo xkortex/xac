@@ -5,13 +5,21 @@ Copyright © 2019 MICHAEL McDERMOTT
 package cmd
 
 import (
+	"github.com/Wessie/appdirs"
+	"github.com/spf13/viper"
 	"github.com/xkortex/xac/kv/util"
 	"log"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
 
-var developer string
+var (
+	cfgFile       string
+	developer     string
+	defaultCfgDir string
+)
+const defaultCfgName = "kv.yml"
 
 // RootCmd represents the root command
 var RootCmd = &cobra.Command{
@@ -47,7 +55,8 @@ func Execute() {
 
 func init() {
 	cobra.OnInitialize(initConfig)
-
+	defaultCfgDir = appdirs.UserConfigDir("kv", "", "", false)
+	defaultCfgFile := filepath.Join(defaultCfgDir, "config.yml")
 	//RootCmd.AddCommand(RootCmd)
 
 	// Here you will define your flags and configuration settings.
@@ -55,6 +64,10 @@ func init() {
 	// Cobra supports Persistent Flags which will work for this command
 	// and all subcommands, e.g.:
 	// RootCmd.PersistentFlags().String("foo", "", "A help for foo")
+	RootCmd.PersistentFlags().StringVarP(&cfgFile, "config", "c",
+		defaultCfgFile,
+		"config file, based in UserConfigDir", )
+
 	RootCmd.PersistentFlags().StringP("namespace", "n", "", "namespace of kv store")
 
 	// Cobra supports local flags which will only run when this command
@@ -67,5 +80,25 @@ func init() {
 }
 
 func initConfig() {
-// todo: use init config to do stuff based on env
+	if cfgFile != "" {
+		// Use config file from the flag.
+		viper.SetConfigFile(cfgFile)
+	} else {
+		viper.AddConfigPath(defaultCfgDir)
+		viper.SetConfigName(defaultCfgName)
+	}
+
+	viper.AutomaticEnv() // read in environment variables that match
+
+	// If a config file is found, read it in.
+	if err := viper.ReadInConfig(); err != nil {
+		// If we just didn't find it, that's fine. Otherwise, we probably want
+		// to know if, e.g., the file was corrupt.
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			// todo: make these debug logs
+			log.Printf("No config read: %v", err)
+		}
+	} else {
+		log.Printf("Using config file %q", viper.ConfigFileUsed())
+	}
 }
