@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"golang.org/x/net/context"
 	"net"
-	"time"
 )
 
 type AddrResponse struct {
@@ -13,9 +12,7 @@ type AddrResponse struct {
 }
 
 func TimeoutLookupHost(host string, timeout float64) (addrs []string, err error) {
-	timeout_ns := timeout * 1e9
-	timeout_d := time.Duration(int(timeout_ns))
-	ctx, cancel := context.WithTimeout(context.Background(), timeout_d)
+	ctx, cancel := context.WithTimeout(context.Background(), SecsToDuration(timeout))
 	defer cancel()
 
 	ch := make(chan AddrResponse, 1)
