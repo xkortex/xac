@@ -33,6 +33,6 @@ func TimeoutLookupHost(host string, timeout float64) (addrs []string, err error)
 	case out := <-ch:
 		return out.addrs, out.err
 	case <-ctx.Done():
-		return nil, fmt.Errorf("Lookup '%s' timed out after %.3fs", host)
+		return nil, fmt.Errorf("Lookup '%s' timed out after %.3fs", host, timeout)
 	}
 }

@@ -21,7 +21,7 @@ var arpScanCmd = &cobra.Command{
 	Long: `arp scan on an interface 
 	`,
 	Run: func(cmd *cobra.Command, args []string) {
-		log.SetFormatter(&log.JSONFormatter{})
+		log.SetFormatter(&log.JSONFormatter{DisableTimestamp:true})
 		log.SetOutput(os.Stdout)
 
 		util.Vprint("root called")
@@ -29,8 +29,11 @@ var arpScanCmd = &cobra.Command{
 		all, _ := cmd.PersistentFlags().GetBool("all")
 
 		timeout, _ := cmd.PersistentFlags().GetFloat64("timeout")
+		delay, _ := cmd.PersistentFlags().GetFloat64("delay")
+		util.Vprint("Timeout: ", timeout)
+		util.Vprint("Delay: ", delay)
 		if all {
-			arpResults, err := dug.ScanAllInterfaces(timeout)
+			arpResults, err := dug.ScanAllInterfaces(timeout, delay)
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -40,11 +43,11 @@ var arpScanCmd = &cobra.Command{
 
 		interfaceName := args[0]
 
-		arpResults, err := dug.ScanInterface(interfaceName, timeout)
+		arpResults, err := dug.ScanInterface(interfaceName, timeout, delay)
 		if err != nil {
 			log.Fatal(err)
 		}
-		log.Println(arpResults)
+		util.Vprint(arpResults) // in prog
 		return
 
 	},
@@ -54,5 +57,6 @@ func init() {
 	RootCmd.AddCommand(arpScanCmd)
 	arpScanCmd.PersistentFlags().BoolP("all", "a", false, "Scan all interfaces")
 	arpScanCmd.PersistentFlags().Float64P("timeout", "t", 1.0, "Timeout in seconds")
+	arpScanCmd.PersistentFlags().Float64P("delay", "d", 0.0, "Delay between sends in seconds")
 
 }

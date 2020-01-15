@@ -8,8 +8,8 @@ import (
 	"github.com/google/gopacket"
 	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
+	log "github.com/sirupsen/logrus"
 	"github.com/xkortex/xac/kv/util"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -27,7 +27,7 @@ import (
 //   * Reading in packet data and interpreting it
 //   * Use of the 'pcap' subpackage for reading/writing
 
-func ScanAllInterfaces(timeout float64) (results interface{}, err error) {
+func ScanAllInterfaces(timeout float64, delay float64) (results interface{}, err error) {
 	// Get a list of all interfaces.
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -40,8 +40,8 @@ func ScanAllInterfaces(timeout float64) (results interface{}, err error) {
 		// Start up a Scan on each interface.
 		go func(iface net.Interface) {
 			defer wg.Done()
-			if _, err := Scan(&iface, timeout); err != nil {
-				log.Printf("interface %v: %v", iface.Name, err)
+			if _, err := Scan(&iface, timeout, delay); err != nil {
+				util.Vprint("interface %v: %v", iface.Name, err)
 			}
 		}(iface)
 	}
@@ -53,7 +53,7 @@ func ScanAllInterfaces(timeout float64) (results interface{}, err error) {
 
 }
 
-func ScanInterface(name string, timeout float64) (results interface{}, err error) {
+func ScanInterface(name string, timeout float64, delay float64) (results interface{}, err error) {
 	// Get a list of all interfaces.
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -75,8 +75,8 @@ func ScanInterface(name string, timeout float64) (results interface{}, err error
 			util.Vprint("Scanning:", iface.Name)
 			defer wg.Done()
 
-			if _, err := Scan(&iface, timeout); err != nil {
-				log.Printf("interface %v: %v", iface.Name, err)
+			if _, err := Scan(&iface, timeout, delay); err != nil {
+				log.Errorf("interface %v: %v", iface.Name, err)
 			}
 		}(iface)
 	}
@@ -88,8 +88,11 @@ func ScanInterface(name string, timeout float64) (results interface{}, err error
 //
 // Scan loops forever, sending packets out regularly.  It returns an error if
 // it's ever unable to write a packet.
-func Scan(iface *net.Interface, timeout float64) (arps []layers.ARP, err error) {
+func Scan(iface *net.Interface, timeout float64, delay float64) (arps []layers.ARP, err error) {
 	// We just look for IPv4 addresses, so try to find if the interface has one.
+	//ctx, cancel := context.WithTimeout(context.Background(), SecsToDuration(timeout))
+	//defer cancel()
+
 	var addr *net.IPNet
 	if addrs, err := iface.Addrs(); err != nil {
 		return nil, err
@@ -114,7 +117,7 @@ func Scan(iface *net.Interface, timeout float64) (arps []layers.ARP, err error) 
 	} else if addr.Mask[0] != 0xff || addr.Mask[1] != 0xff {
 		return nil, errors.New("mask means network is too large")
 	}
-	log.Printf("Using network range %v for interface %v", addr, iface.Name)
+	util.Vprint("Using network range %v for interface %v", addr, iface.Name)
 
 	// Open up a pcap handle for packet reads/writes.
 	handle, err := pcap.OpenLive(iface.Name, 65536, true, pcap.BlockForever)
@@ -128,7 +131,7 @@ func Scan(iface *net.Interface, timeout float64) (arps []layers.ARP, err error) 
 	go readARP(handle, iface, stop)
 	defer close(stop)
 	// Write our Scan packets out to the handle.
-	if err := writeARP(handle, iface, addr); err != nil {
+	if err := writeARP(handle, iface, addr, delay); err != nil {
 		log.Printf("error writing packets on %v: %v", iface.Name, err)
 		return nil, err
 	}
@@ -137,6 +140,88 @@ func Scan(iface *net.Interface, timeout float64) (arps []layers.ARP, err error) 
 	// time ;)
 	time.Sleep(SecsToDuration(timeout))
 	return nil, nil
+}
+
+func AggroScan(iface *net.Interface, timeout float64) (arps []layers.ARP, err error) {
+	// We just look for IPv4 addresses, so try to find if the interface has one.
+	//ctx, cancel := context.WithTimeout(context.Background(), SecsToDuration(timeout))
+	//defer cancel()
+
+	var addr *net.IPNet
+	if addrs, err := iface.Addrs(); err != nil {
+		return nil, err
+	} else {
+		for _, a := range addrs {
+			if ipnet, ok := a.(*net.IPNet); ok {
+				if ip4 := ipnet.IP.To4(); ip4 != nil {
+					addr = &net.IPNet{
+						IP:   ip4,
+						Mask: ipnet.Mask[len(ipnet.Mask)-4:],
+					}
+					break
+				}
+			}
+		}
+	}
+	// Sanity-check that the interface has a good address.
+	if addr == nil {
+		return nil, errors.New("no good IP network found")
+	} else if addr.IP[0] == 127 {
+		return nil, errors.New("skipping localhost")
+	} else if addr.Mask[0] != 0xff || addr.Mask[1] != 0xff {
+		return nil, errors.New("mask means network is too large")
+	}
+	util.Vprint("Using network range %v for interface %v", addr, iface.Name)
+
+	// Open up a pcap handle for packet reads/writes.
+	handle, err := pcap.OpenLive(iface.Name, 65536, true, pcap.BlockForever)
+	if err != nil {
+		return nil, err
+	}
+	defer handle.Close()
+
+	// Start up a goroutine to read in packet data.
+	stop := make(chan struct{})
+	go ReadInterface(handle, iface, stop)
+	defer close(stop)
+	// Write our Scan packets out to the handle.
+
+	// We don't know exactly how long it'll take for packets to be
+	// sent back to us, but 10 seconds should be more than enough
+	// time ;)
+	time.Sleep(SecsToDuration(timeout))
+	return nil, nil
+}
+
+func ReadInterface(handle *pcap.Handle, iface *net.Interface, stop chan struct{}) {
+	src := gopacket.NewPacketSource(handle, layers.LayerTypeEthernet)
+	in := src.Packets()
+	for {
+		var packet gopacket.Packet
+		select {
+		case <-stop:
+			return
+		case packet = <-in:
+			arpLayer := packet.Layer(layers.LayerTypeARP)
+			if arpLayer == nil {
+				continue
+			}
+			arp := arpLayer.(*layers.ARP)
+			if arp.Operation != layers.ARPReply || bytes.Equal([]byte(iface.HardwareAddr), arp.SourceHwAddress) {
+				// This is a packet I sent.
+				continue
+			}
+			// Note:  we might get some packets here that aren't responses to ones we've sent,
+			// if for example someone else sends US an ARP request.  Doesn't much matter, though...
+			// all information is good information :)
+			//log.Printf("IP %v is at %v", net.IP(arp.SourceProtAddress), net.HardwareAddr(arp.SourceHwAddress))
+			log.WithFields(log.Fields{
+				"ip":  net.IP(arp.SourceProtAddress),
+				"mac": fmt.Sprintf("%v", net.HardwareAddr(arp.SourceHwAddress)),
+				"iface": iface.Name,
+			}).Info()
+		}
+	}
 }
 
 // readARP watches a handle for incoming ARP responses we might care about, and prints them.
@@ -163,14 +248,19 @@ func readARP(handle *pcap.Handle, iface *net.Interface, stop chan struct{}) {
 			// Note:  we might get some packets here that aren't responses to ones we've sent,
 			// if for example someone else sends US an ARP request.  Doesn't much matter, though...
 			// all information is good information :)
-			log.Printf("IP %v is at %v", net.IP(arp.SourceProtAddress), net.HardwareAddr(arp.SourceHwAddress))
+			//log.Printf("IP %v is at %v", net.IP(arp.SourceProtAddress), net.HardwareAddr(arp.SourceHwAddress))
+			log.WithFields(log.Fields{
+				"ip":  net.IP(arp.SourceProtAddress),
+				"mac": fmt.Sprintf("%v", net.HardwareAddr(arp.SourceHwAddress)),
+				"iface": iface.Name,
+			}).Info()
 		}
 	}
 }
 
 // writeARP writes an ARP request for each address on our local network to the
 // pcap handle.
-func writeARP(handle *pcap.Handle, iface *net.Interface, addr *net.IPNet) error {
+func writeARP(handle *pcap.Handle, iface *net.Interface, addr *net.IPNet, delay float64) error {
 	// Set up all the layers' fields we can.
 	eth := layers.Ethernet{
 		SrcMAC:       iface.HardwareAddr,
@@ -194,12 +284,15 @@ func writeARP(handle *pcap.Handle, iface *net.Interface, addr *net.IPNet) error 
 		ComputeChecksums: true,
 	}
 	// Send one packet for every address.
+	//fmt.Println(addr)
 	for _, ip := range ips(addr) {
 		arp.DstProtAddress = []byte(ip)
 		gopacket.SerializeLayers(buf, opts, &eth, &arp)
+		// Might want to trim to 42 because the camera does not respond to the padded one
 		if err := handle.WritePacketData(buf.Bytes()); err != nil {
 			return err
 		}
+		time.Sleep(SecsToDuration(delay))
 	}
 	return nil
 }
@@ -211,6 +304,7 @@ func ips(n *net.IPNet) (out []net.IP) {
 	num := binary.BigEndian.Uint32([]byte(n.IP))
 	mask := binary.BigEndian.Uint32([]byte(n.Mask))
 	num &= mask
+	//fmt.Printf("num: %x mask: %x", num, mask)
 	for mask < 0xffffffff {
 		var buf [4]byte
 		binary.BigEndian.PutUint32(buf[:], num)
